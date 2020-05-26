@@ -66,6 +66,13 @@ uint16_t m_baroDataHead = 0;
 uint16_t m_numDays = 1;
 uint16_t m_numDataPoints = m_numDays * POINTS_PER_DAY;
 
+// baro filter
+#define FILTER_SIZE 8
+uint16_t m_baroFilter[FILTER_SIZE]= {0};
+uint16_t m_yPosFilter[FILTER_SIZE]= {0};
+
+
+
 void setup() 
 {
     // put your setup code here, to run once:
@@ -209,6 +216,37 @@ int16_t Interpolate (int16_t value , int16_t fromLow , int16_t fromHigh , int16_
 //----------------------------------------
 //
 //----------------------------------------
+uint16_t FilterDisplay (uint16_t yPos)
+{
+    static int head = 0;
+    // init the filter
+    if (m_yPosFilter[0] == 0)
+    {
+        for (int i = 0 ; i < FILTER_SIZE ; i++)
+        {
+            m_yPosFilter[i] = yPos;
+        }
+        return yPos;
+    }
+    else 
+    {
+        m_yPosFilter[head++] = yPos;
+        if (head == FILTER_SIZE)
+            head = 0;
+    }
+    uint32_t total = 0; 
+    for (int i = 0 ; i < FILTER_SIZE ; i++)
+    {
+        total += m_yPosFilter[i];
+    }
+    return total / FILTER_SIZE;
+}
+
+
+
+//----------------------------------------
+//
+//----------------------------------------
 void DrawBaro (uint16_t baro)
 {
     // Add the new value
@@ -224,6 +262,12 @@ void DrawBaro (uint16_t baro)
     if (offset < 0) offset += BARO_ARRAY_SIZE;
     uint16_t lastX = 0;
     uint16_t lastY = 0;
+
+    // reset yPos filter
+    for (int i=0; i < FILTER_SIZE ; i++)
+    {
+        m_yPosFilter[i] = 0;
+    }
     
     for (int i = 0 ; i < m_numDataPoints ; i++)
     {
@@ -233,12 +277,17 @@ void DrawBaro (uint16_t baro)
         baro = m_baroDataArray[offset];
 
         uint16_t yPos = Interpolate (baro , high , low , TOP_GRAPH , BOTTOM_GRAPH);
+        yPos = FilterDisplay(yPos);
+
+        if (yPos < 70) yPos = 70;
+        if (yPos > 310) yPos = 310;
+        
         uint16_t xPos = Interpolate (i , 0 , m_numDataPoints , 6 , 470);
         
         if (lastY != 0)
         {
             // Over draw the previous colours
-            for (int x = lastX ; x < xPos ; x++)
+            for (int x = lastX ; x <= xPos ; x++)
             {
                 if (x%GRADULE == 0 )//|| x%32 == 0)
                     tft.drawFastVLine (x , TOP_GRAPH , GRAPH_HEIGHT , DARKGREEN);
@@ -248,7 +297,7 @@ void DrawBaro (uint16_t baro)
 
             // draw a line
             tft.drawLine (lastX , lastY , xPos , yPos , LIGHTGREEN);
-            tft.drawLine (lastX+1 , lastY , xPos+1 , yPos , LIGHTGREEN);
+            tft.drawLine (lastX , lastY+1 , xPos , yPos+1 , LIGHTGREEN);
         }
         for (int y = TOP_GRAPH ; y < HEIGHT - 6 ; y += GRADULE)
         {
@@ -318,6 +367,35 @@ void LoadBaroArray ()
 //----------------------------------------
 //
 //----------------------------------------
+uint16_t FilterBaro (uint16_t baro)
+{
+    static int head = 0;
+    // init the filter
+    if (m_baroFilter[0] == 0)
+    {
+        for (int i = 0 ; i < FILTER_SIZE ; i++)
+        {
+            m_baroFilter[i] = baro;
+        }
+        return baro;
+    }
+    else 
+    {
+        m_baroFilter[head++] = baro;
+        if (head == FILTER_SIZE)
+            head = 0;
+    }
+    uint32_t total = 0; 
+    for (int i = 0 ; i < FILTER_SIZE ; i++)
+    {
+        total += m_baroFilter[i];
+    }
+    return total / FILTER_SIZE;
+}
+
+//----------------------------------------
+//
+//----------------------------------------
 void loop()
 {
     // draw the screen
@@ -331,16 +409,25 @@ void loop()
     float pressure = 0.0;
 
     uint32_t lastReadTime = 0;
+    uint32_t lastUpdateTime = 0;
+
     int16_t lastPressure = 0;
+    int16_t int_pressure = 0;
     char buf[10];
 
     while (true)
     {
-        if (lastReadTime == 0 || millis() - lastReadTime > FIVE_MINUTES)
+        if (lastReadTime == 0 || millis() - lastReadTime > 3000)
         {
             lastReadTime = millis();
-            int16_t int_pressure = (int16_t)(bmp.readPressure() / 10.0);
-
+            int_pressure = (int16_t)(bmp.readPressure() / 10.0);
+            int_pressure = FilterBaro (int_pressure);
+        }        
+      
+        if (lastUpdateTime == 0 || millis() - lastUpdateTime > FIVE_MINUTES)
+        {
+            lastUpdateTime = millis();
+            
             // update the graph
             DrawBaro (int_pressure);
 
@@ -349,10 +436,9 @@ void loop()
             {
                 lastPressure = int_pressure;
                 sprintf (buf , "%d.%d" , int_pressure / 10 , int_pressure % 10);
-                DrawBaro (int_pressure);
                 UpdateBaro (buf);
             }
-        }
+        }      
         delay(100);
     }
 }
