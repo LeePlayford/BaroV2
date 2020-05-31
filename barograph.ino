@@ -7,7 +7,8 @@
 #include <stdio.h>
 
 #if defined(_GFXFONT_H_)           //are we using the new library?
-#include <Fonts/FreeMono9pt7b.h>
+#include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSans12pt7b.h>
 #define ADJ_BASELINE 11            //new fonts setCursor to bottom of letter
 #else
 #define ADJ_BASELINE 0             //legacy setCursor to top of letter
@@ -72,7 +73,9 @@ uint16_t m_baroFilter[FILTER_SIZE]= {0};
 uint16_t m_yPosFilter[FILTER_SIZE]= {0};
 
 
-
+//---------------------------------------------------------------------
+//
+//---------------------------------------------------------------------
 void setup() 
 {
     // put your setup code here, to run once:
@@ -87,7 +90,7 @@ void setup()
     tft.fillScreen(BLACK);
 
 #if defined(_GFXFONT_H_)
-    tft.setFont(&FreeMono9pt7b);
+    tft.setFont(&FreeSans9pt7b);
 #endif
 
     // Set up the Barometer chip
@@ -104,7 +107,9 @@ void setup()
     }
 }
 
-
+//---------------------------------------------------------------------
+//
+//---------------------------------------------------------------------
 void DrawInitScreen()
 {
     // put a box on the screen
@@ -119,11 +124,18 @@ void DrawInitScreen()
 
 
     tft.setCursor (10, 30);
-    tft.print("Baro         Position           SOG    Kts");
-    tft.setCursor (210, 60);
-    tft.print("COG");
+    tft.print("Baro");
+    tft.setCursor (140, 30);
+    tft.print("High");
+    tft.setCursor (260, 30);
+    tft.print("Trend");
+    tft.setCursor (140, 60);
+    tft.print("Low");
 }
 
+//---------------------------------------------------------------------
+//
+//---------------------------------------------------------------------
 void UpdatePosition (char* latitude , char* longitude)
 {
     tft.setCursor (1, 20);
@@ -132,9 +144,74 @@ void UpdatePosition (char* latitude , char* longitude)
     tft.setCursor (60, 30);
 }
 
+//---------------------------------------------------------------------
+//
+//---------------------------------------------------------------------
+void UpdateLow (char* low)
+{
+    static char lastLow[10] = {"1013.4"};
+
+    tft.setFont(&FreeSans12pt7b);
+
+    tft.setCursor (210, 40);
+    tft.setTextColor(CYAN , BLACK);
+    tft.setTextSize(1);
+    int16_t x, y, x1, y1;
+    uint16_t w , h;
+    x = 180;
+    y = 60;
+    tft.getTextBounds (lastLow , x , y , &x1, &y1 , &w , &h);
+    tft.fillRect (x1, y1, w, h, BLACK);
+    tft.setCursor (x, y);
+    tft.print(low);
+
+    strcpy (low , lastLow);
+}
+
+
+//---------------------------------------------------------------------
+//
+//---------------------------------------------------------------------
+void UpdateHigh (char* high)
+{
+    static char lastHigh[10] = {"1013.4"};
+
+    tft.setFont(&FreeSans12pt7b);
+
+    tft.setCursor (210, 20);
+    tft.setTextColor(CYAN , BLACK);
+    tft.setTextSize(1);
+    int16_t x, y, x1, y1;
+    uint16_t w , h;
+    x = 180;
+    y = 30;
+    tft.getTextBounds (lastHigh , x , y , &x1, &y1 , &w , &h);
+    tft.fillRect (x1, y1, w, h, BLACK);
+    tft.setCursor (x, y);
+    tft.print(high);
+
+    strcpy (high , lastHigh);
+}
+
+//---------------------------------------------------------------------
+//
+//---------------------------------------------------------------------
 void UpdateBaro (char* baro)
 {
+    
+    uint16_t high , low , range;
+    GetHighLowRange(high , low , range);
+    char buf[10];
+    sprintf (buf , "%d.%d" , high / 10 , high % 10);
+    UpdateHigh (buf);
+    sprintf (buf , "%d.%d" , low / 10 , low % 10);
+    UpdateLow (buf);
+    
+    
     static char lastBaro[10] = {"1013.4"};
+
+    tft.setFont(&FreeSans12pt7b);
+
     tft.setCursor (1, 20);
     tft.setTextColor(CYAN , BLACK);
     tft.setTextSize(1);
@@ -149,6 +226,7 @@ void UpdateBaro (char* baro)
 
     strcpy (baro , lastBaro);
 }
+
 
 //---------------------------------------------------------------------
 //
@@ -180,6 +258,9 @@ void GetHighLowRange (uint16_t& high , uint16_t &low , uint16_t &range)
     Serial.println (low , DEC);
 }
 
+//---------------------------------------------------------------------
+//
+//---------------------------------------------------------------------
 void ScaleHighLowRange (uint16_t& high , uint16_t &low , uint16_t &range)
 {
     if (range < 10) range = 10;
@@ -256,7 +337,7 @@ void DrawBaro (uint16_t baro)
     uint16_t high , low , range;
     GetHighLowRange (high , low , range);
     ScaleHighLowRange(high, low, range);
-    
+
 
     uint16_t offset = m_baroDataHead - m_numDataPoints;
     if (offset < 0) offset += BARO_ARRAY_SIZE;
