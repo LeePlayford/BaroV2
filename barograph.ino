@@ -52,6 +52,7 @@ uint16_t GRAPH_HEIGHT = 245;
 uint16_t TOP_GRAPH = 70;
 uint16_t GRADULE = 66;
 uint16_t BOTTOM_GRAPH= 310;
+uint16_t LEFT_GRAPH = 70;
 
 
 // Data Defines
@@ -148,6 +149,30 @@ void UpdatePosition (char* latitude , char* longitude)
 //---------------------------------------------------------------------
 //
 //---------------------------------------------------------------------
+void UpdateDelta (char* delta)
+{
+    static char lastDelta[10] = {"10.0"};
+
+    tft.setFont(&FreeSans12pt7b);
+    int16_t x, y, x1, y1;
+
+    x = 310;
+    y = 60;
+
+    tft.setTextColor(CYAN , BLACK);
+    tft.setTextSize(1);
+    uint16_t w , h;
+    tft.getTextBounds (lastDelta , x , y , &x1, &y1 , &w , &h);
+    tft.fillRect (x1, y1, w, h, BLACK);
+    tft.setCursor (x, y);
+    tft.print(delta);
+
+    strcpy (lastDelta , delta);
+}
+
+//---------------------------------------------------------------------
+//
+//---------------------------------------------------------------------
 void UpdateLow (char* low)
 {
     static char lastLow[10] = {"1013.5"};
@@ -155,7 +180,7 @@ void UpdateLow (char* low)
     tft.setFont(&FreeSans12pt7b);
     int16_t x, y, x1, y1;
 
-    x = 290;
+    x = 310;
     y = 30;
 
     tft.setTextColor(CYAN , BLACK);
@@ -202,7 +227,15 @@ void UpdateTrend (int16_t baro)
     if (offset < 0) offset += POINTS_PER_DAY; 
     int16_t threeHours = m_baroDataArray[offset] ;
 
-    int16_t diff = threeHours - baro;
+    int16_t diff = baro - threeHours;
+    char buf[10];
+    if ( diff < 0)
+        sprintf (buf , "-%d.%d" , abs(diff / 10) , abs(diff % 10));
+    else
+        sprintf (buf , "%d.%d" , abs(diff / 10) , abs(diff % 10));
+    
+    UpdateDelta(buf);
+    
     char f_r [32];
     memset (f_r , 0x0 , 32);
     if (abs(diff) < 1)
@@ -352,13 +385,6 @@ void ScaleHighLowRange (uint16_t& high , uint16_t &low , uint16_t &range)
         range = GetRange (range + 10);
     }
     low = high - range;
-    
-    Serial.print ("ScaleHighLowRange() Range ");
-    Serial.print (range , DEC);
-    Serial.print (" High ");
-    Serial.print (high , DEC);
-    Serial.print (" Low ");
-    Serial.println (low , DEC);
 }
 
 //----------------------------------------
@@ -472,10 +498,10 @@ void DrawBaro (uint16_t baro)
         
         yPos = FilterDisplay(yPos);
 
-        if (yPos < 74) yPos = 74;
-        if (yPos > 310) yPos = 310;
+        if (yPos < TOP_GRAPH) yPos = TOP_GRAPH;
+        if (yPos > BOTTOM_GRAPH) yPos = BOTTOM_GRAPH;
         
-        uint16_t xPos = 70 + i;
+        uint16_t xPos = LEFT_GRAPH + i;
         if (lastY != 0)
         {
             // Over draw the previous colours
@@ -491,27 +517,25 @@ void DrawBaro (uint16_t baro)
             tft.drawLine (lastX , lastY , xPos , yPos , LIGHTGREEN);
             tft.drawLine (lastX , lastY+1 , xPos , yPos+1 , LIGHTGREEN);
         }
-        //for (int y = TOP_GRAPH ; y < HEIGHT - 6 ; y += 45)
-       // {
-         //   tft.drawFastHLine (70 , y , GRAPH_WIDTH , DARKGREEN);
-       // }
 
+        // draw the Horiontal lines
         for (int y = low ; y <= high ; y+= range / 5)
         {
             uint16_t yPos = Interpolate (y , high , low , TOP_GRAPH , BOTTOM_GRAPH);
-            tft.drawFastHLine (70 , yPos , GRAPH_WIDTH , DARKGREEN);           
+            tft.drawFastHLine (LEFT_GRAPH , yPos , GRAPH_WIDTH , DARKGREEN);           
         }
 
+        // keep the last positions
         lastX = xPos;
         lastY = yPos;
         
         // check range  
         if (++offset >= BARO_ARRAY_SIZE) offset = 0;
     }
-        // reset the array head if necessary
+    
+    // reset the array head if necessary
     if (++m_baroDataHead >= BARO_ARRAY_SIZE)
         m_baroDataHead = 0;
-
 }
 
 //----------------------------------------
@@ -616,14 +640,14 @@ void loop()
 
     while (true)
     {
-        if (lastReadTime == 0 || millis() - lastReadTime > SAMPLE_TIME / 80)
+        if (lastReadTime == 0 || millis() - lastReadTime > SAMPLE_TIME / 8)
         {
             lastReadTime = millis();
             int_pressure = (int16_t)(bmp.readPressure() / 10.0);
             int_pressure = FilterBaro (int_pressure);
         }        
       
-        if (lastUpdateTime == 0 || millis() - lastUpdateTime > SAMPLE_TIME / 10)
+        if (lastUpdateTime == 0 || millis() - lastUpdateTime > SAMPLE_TIME )
         {
             lastUpdateTime = millis();
             
