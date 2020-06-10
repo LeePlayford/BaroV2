@@ -1,6 +1,5 @@
 #include <EEPROM.h>
 
-#include <SD.h>
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_BMP280.h>
@@ -18,24 +17,24 @@ MCUFRIEND_kbv tft;
 
 // Colour Defines
 #define BLACK   0x0000
-#define BLUE    0x001F
-#define RED     0xF800
+//#define BLUE    0x001F
+//#define RED     0xF800
 #define GREEN   0x07E0
 #define CYAN    0x07FF
 #define MAGENTA 0xF81F
 #define YELLOW  0xFFE0
-#define WHITE   0xFFFF
+//#define WHITE   0xFFFF
 
 #define RGB(r, g, b) (((r&0xF8)<<8)|((g&0xFC)<<3)|(b>>3))
 
-#define GREY      RGB(127, 127, 127)
+//#define GREY      RGB(127, 127, 127)
 #define DARKGREY  RGB(64, 64, 64)
-#define TURQUOISE RGB(0, 128, 128)
-#define PINK      RGB(255, 128, 192)
-#define OLIVE     RGB(128, 128, 0)
-#define PURPLE    RGB(128, 0, 128)
-#define AZURE     RGB(0, 128, 255)
-#define ORANGE    RGB(255,128,64)
+//#define TURQUOISE RGB(0, 128, 128)
+//#define PINK      RGB(255, 128, 192)
+//#define OLIVE     RGB(128, 128, 0)
+//#define PURPLE    RGB(128, 0, 128)
+//#define AZURE     RGB(0, 128, 255)
+//#define ORANGE    RGB(255,128,64)
 #define DARKGREEN RGB(0,128,0)
 #define LIGHTGREEN RGB(0,255,128)
 
@@ -64,8 +63,6 @@ uint32_t SAMPLE_TIME = 86400/4*10;
 // Baro Array Define
 uint16_t m_baroDataArray[BARO_ARRAY_SIZE];
 uint16_t m_baroDataHead = 0;
-uint16_t m_numDays = 1;
-uint16_t m_numDataPoints = m_numDays * POINTS_PER_DAY;
 
 // baro filter
 #define FILTER_SIZE 8
@@ -79,7 +76,7 @@ uint16_t m_yPosFilter[FILTER_SIZE]= {0};
 void setup() 
 {
     // put your setup code here, to run once:
-    Serial.begin(38400);
+    //Serial.begin(38400);
 
     // Reset the TFT
     tft.reset();
@@ -103,7 +100,7 @@ void setup()
 
     if (!bmp.begin())
     {
-        Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
+    //    Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
     }
 }
 
@@ -138,20 +135,9 @@ void DrawInitScreen()
 //---------------------------------------------------------------------
 //
 //---------------------------------------------------------------------
-void UpdatePosition (char* latitude , char* longitude)
-{
-    tft.setCursor (1, 20);
-    tft.setTextColor(CYAN);
-    tft.setTextSize(1);
-    tft.setCursor (60, 30);
-}
-
-//---------------------------------------------------------------------
-//
-//---------------------------------------------------------------------
 void UpdateDelta (char* delta)
 {
-    static char lastDelta[10] = {"10.0"};
+    static char lastDelta[6] = {"10.0"};
 
     tft.setFont(&FreeSans12pt7b);
     int16_t x, y, x1, y1;
@@ -175,7 +161,7 @@ void UpdateDelta (char* delta)
 //---------------------------------------------------------------------
 void UpdateLow (char* low)
 {
-    static char lastLow[10] = {"1013.5"};
+    static char lastLow[7] = {"1013.5"};
 
     tft.setFont(&FreeSans12pt7b);
     int16_t x, y, x1, y1;
@@ -200,7 +186,7 @@ void UpdateLow (char* low)
 //---------------------------------------------------------------------
 void UpdateHigh (char* high)
 {
-    static char lastHigh[10] = {"1013.6"};
+    static char lastHigh[7] = {"1013.6"};
     tft.setFont(&FreeSans12pt7b);
 
     tft.setTextColor(CYAN , BLACK);
@@ -228,16 +214,16 @@ void UpdateTrend (int16_t baro)
     int16_t threeHours = m_baroDataArray[offset] ;
 
     int16_t diff = baro - threeHours;
-    char buf[10];
+    char buf[6];
     if ( diff < 0)
         sprintf (buf , "-%d.%d" , abs(diff / 10) , abs(diff % 10));
     else
         sprintf (buf , "%d.%d" , abs(diff / 10) , abs(diff % 10));
     
     UpdateDelta(buf);
-    
-    char f_r [32];
-    memset (f_r , 0x0 , 32);
+    const int8_t BUF_SIZE = 18;
+    char f_r [BUF_SIZE];
+    memset (f_r , 0x0 , BUF_SIZE);
     if (abs(diff) < 1)
     {
         strcpy (f_r , "Steady ");
@@ -258,9 +244,8 @@ void UpdateTrend (int16_t baro)
         else
             strcat (f_r , "Rapidly");
     } 
-    Serial.println (f_r);
 
-    static char lastTrend[32] = {"Steady"};
+    static char lastTrend[BUF_SIZE] = {"Steady"};
     tft.setFont(&FreeSans12pt7b);
 
     int16_t x, y, x1, y1;
@@ -297,7 +282,7 @@ void FormatBaro(int16_t baro , char * buffer)
 void UpdateBaro (int16_t baro)
 {
     UpdateTrend (baro);
-    char buf[10];
+    char buf[7];
   
     uint16_t high , low , range;
     GetHighLowRange(high , low , range);
@@ -310,10 +295,9 @@ void UpdateBaro (int16_t baro)
 
     FormatBaro (baro , buf);
   
-    static char lastBaro[10] = {"1013.3"};
+    static char lastBaro[7] = {"1013.3"};
 
     tft.setFont(&FreeSans12pt7b);
-    Serial.println (buf);
     tft.setCursor (1, 20);
     tft.setTextColor(CYAN , BLACK);
     tft.setTextSize(1);
@@ -349,12 +333,6 @@ void GetHighLowRange (uint16_t& high , uint16_t &low , uint16_t &range)
     }
     
     range = high - low;
-    Serial.print ("GetHighLowRange() Range ");
-    Serial.print (range , DEC);
-    Serial.print (" High ");
-    Serial.print (high , DEC);
-    Serial.print (" Low ");
-    Serial.println (low , DEC);
 }
 
 //---------------------------------------------------------------------
@@ -441,7 +419,7 @@ void AddScale (uint16_t baro , uint16_t stepVal)
     tft.setFont(&FreeSans9pt7b);
     tft.setTextColor(CYAN , BLACK);
     tft.setTextSize(1);
-    char buf[10];
+    char buf[8];
 
     for (int i = 0 ; i <= 5 ; i++)
     {
@@ -477,7 +455,7 @@ void DrawBaro (uint16_t baro)
         AddScale (low , range / 5);
     }
 
-    int16_t offset = m_baroDataHead - m_numDataPoints + 1;
+    int16_t offset = m_baroDataHead - BARO_ARRAY_SIZE + 1;
     if (offset < 0) offset += BARO_ARRAY_SIZE;
     uint16_t lastX = 0;
     uint16_t lastY = 0;
@@ -488,7 +466,7 @@ void DrawBaro (uint16_t baro)
         m_yPosFilter[i] = 0;
     }
     
-    for (int i = 0 ; i < m_numDataPoints ; i++)
+    for (int i = 0 ; i < BARO_ARRAY_SIZE ; i++)
     {
         // need to draw the pixel
         // scale between 950 - 1050
@@ -507,8 +485,10 @@ void DrawBaro (uint16_t baro)
             // Over draw the previous colours
             for (int x = lastX ; x <= xPos ; x++)
             {
-                if (x%45 == 0 )//|| x%32 == 0)
+                if ((x-22)%45 == 0 )
                     tft.drawFastVLine (x , TOP_GRAPH , GRAPH_HEIGHT , DARKGREEN);
+                else if (x == 426)
+                    tft.drawFastVLine (x , TOP_GRAPH , GRAPH_HEIGHT , YELLOW);
                 else
                     tft.drawFastVLine (x , TOP_GRAPH , GRAPH_HEIGHT , BLACK);
             }
@@ -541,50 +521,42 @@ void DrawBaro (uint16_t baro)
 //----------------------------------------
 //
 //----------------------------------------
-void DrawTitles()
+void StoreData ()
 {
-    int16_t mBar = 1030;
-    tft.setTextSize(1);
-    for (int y = 64 ; y < HEIGHT; y += 32)
+    uint16_t offset = m_baroDataHead;
+
+    for (int i = 0 ; i < BARO_ARRAY_SIZE ; i++)
     {
-        tft.setCursor (2 , y);
-        tft.print (mBar);
-        mBar -= 5;
+        EEPROM.update (i*2 , m_baroDataArray[i] & 0xff);
+        EEPROM.update ((i*2)+1 , (m_baroDataArray[i] >> 8) & 0xff);
     }
+    EEPROM.update (0x3fe , m_baroDataHead &0xff);
+    EEPROM.update (0x3ff , (m_baroDataHead >> 8) &0xff);   
 }
 
 //----------------------------------------
 //
 //----------------------------------------
-void DrawGraph ()
+void ReadData ()
 {
-    for (int y = TOP_GRAPH ; y < HEIGHT; y += GRADULE)
+    for (int i = 0 ; i < BARO_ARRAY_SIZE ; i++)
     {
-        tft.drawFastHLine (70 , y , WIDTH , DARKGREEN);
-    }
-    for (int x = 70 ; x < WIDTH; x += GRADULE)
-    {
-        tft.drawFastVLine (x , TOP_GRAPH , HEIGHT , DARKGREEN);
-    }
-}
+        uint16_t value = EEPROM.read (i*2);
+        value |= EEPROM.read((i*2)+1) << 8;
+        if (value == 0xffff || value < 9500 || value > 10500)
+        {
+            m_baroDataArray[i] = 10134;
+        }
+        else
+            m_baroDataArray[i] = value;
 
-//----------------------------------------
-// Test Code - will load from eprom
-//----------------------------------------
-void LoadBaroArray ()
-{
-    int16_t initVal = 10000;
-    int16_t delta = 0;
-    for (int16_t i = 0 ; i < BARO_ARRAY_SIZE ; i++)
-    {
-        
-        int rn = random (10);
-        if (rn < 2)
-            delta = 1;
-        if (rn > 8)
-            delta = -2;
-        m_baroDataArray[i] = (initVal += delta);
     }
+    // Read in the data write position
+    m_baroDataHead = EEPROM.read (0x3fe);
+    m_baroDataHead |= (EEPROM.read (0x3ff) << 8);
+    if (m_baroDataHead >= BARO_ARRAY_SIZE)
+        m_baroDataHead = 0;
+    
 }
 
 //----------------------------------------
@@ -622,22 +594,17 @@ uint16_t FilterBaro (uint16_t baro)
 void loop()
 {
     // draw the screen
-    //DrawGraph();
     DrawInitScreen ();
-    LoadBaroArray();
-    
-    m_baroDataHead = 256;
+    ReadData();
     
     // Local variables
-    float pressure = 0.0;
 
     uint32_t lastReadTime = 0;
     uint32_t lastUpdateTime = 0;
 
     int16_t lastPressure = 0;
     int16_t int_pressure = 0;
-    char buf[10];
-
+    int16_t counter = 0;
     while (true)
     {
         if (lastReadTime == 0 || millis() - lastReadTime > SAMPLE_TIME / 8)
@@ -651,8 +618,6 @@ void loop()
         {
             lastUpdateTime = millis();
             
-            // update the graph
-            DrawBaro (int_pressure);
 
             // Update the value only if its changed
             if (lastPressure != int_pressure)
@@ -660,6 +625,12 @@ void loop()
                 lastPressure = int_pressure;
                 UpdateBaro (int_pressure);
             }
+
+            // update the graph
+            DrawBaro (int_pressure);
+
+            if (++counter%20 == 0)  // store every hour
+                StoreData();
         }      
         delay(100);
     }
