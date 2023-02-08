@@ -1,11 +1,29 @@
+//-------------------------------------------------
+//
+// Project BaroGraph
+//
+//
+//
+//-------------------------------------------------
+char version[] = "1.01e";
 
-
- #include <EEPROM.h>
-
-
-#include <Adafruit_BMP280.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
 #include <stdio.h>
 #include <TFT_eSPI.h>
+#include <WiFi.h>
+#include <ESPmDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
+
+// ESP32 Can Setup
+#define ESP32_CAN_TX_PIN GPIO_NUM_16
+#define ESP32_CAN_RX_PIN GPIO_NUM_17
+
+#include <Arduino.h>
+#include <NMEA2000_CAN.h>  // This will automatically choose right CAN library and create suitable NMEA2000 object
+#include <N2kMessages.h>
 
 #include "Free_Fonts.h"
 
@@ -13,33 +31,31 @@ TFT_eSPI tft = TFT_eSPI();
 
 // Colour Defines
 #define BLACK   0x0000
-//#define BLUE    0x001F
-//#define RED     0xF800
 #define GREEN   0x07E0
 #define CYAN    0x07FF
 #define MAGENTA 0xF81F
 #define YELLOW  0xFFE0
-//#define WHITE   0xFFFF
 
 #define RGB(r, g, b) (((r&0xF8)<<8)|((g&0xFC)<<3)|(b>>3))
 
-//#define GREY      RGB(127, 127, 127)
 #define DARKGREY  RGB(64, 64, 64)
-//#define TURQUOISE RGB(0, 128, 128)
-//#define PINK      RGB(255, 128, 192)
-//#define OLIVE     RGB(128, 128, 0)
-//#define PURPLE    RGB(128, 0, 128)
-//#define AZURE     RGB(0, 128, 255)
-//#define ORANGE    RGB(255,128,64)
 #define DARKGREEN RGB(0,128,0)
 #define LIGHTGREEN RGB(0,255,128)
 
-Adafruit_BMP280 bmp; // I2C
+Adafruit_BME280 bmp; // I2C
 
+//led defines
+#define LED_1 GPIO_NUM_4
+#define LED_2 GPIO_NUM_33
+#define LED_3 GPIO_NUM_32
+#define LED_4 GPIO_NUM_25
 
+bool LED_1_State = 0;
+bool LED_2_State = 0;
+bool LED_3_State = 0;
+bool LED_4_State = 0;
 
 uint16_t ID;
-
 uint16_t HEIGHT = 319;
 uint16_t WIDTH = 479;
 uint16_t GRAPH_WIDTH = 400;
@@ -69,46 +85,182 @@ const uint16_t MIN_BARO = 9600;
 const uint16_t MAX_BARO = 10500;
 static int paddingBaro = 0;
 
-#define BMP 
+// eeprom data
+int EepromAddr = 0x50;  
+
+
+// Define READ_STREAM to port, where you write data from PC e.g. with NMEA Simulator.
+#define READ_STREAM Serial       
+// Define ForwardStream to port, what you listen on PC side. On Arduino Due you can use e.g. SerialUSB
+#define FORWARD_STREAM Serial    
+
+Stream *ReadStream=&READ_STREAM;
+Stream *ForwardStream=&FORWARD_STREAM;
+
+// WIFI network defines
+const char* ssid = "TALKTALK4AD3F0";
+const char* password = "C3AKAC4R";
+ 
+ #define BMP 
+ #define OTA
+ 
 //---------------------------------------------------------------------
 //
 //---------------------------------------------------------------------
 void setup() 
 {
-    // put your setup code here, to run once:
     Serial.begin(115200);
+    Serial.println("Booting");
+    Serial.print ("Version ");
+    Serial.println (version);
+    
+    // Setup the LEDS
+    pinMode (LED_1 , OUTPUT);
+    pinMode (LED_2 , OUTPUT);
+    pinMode (LED_3 , OUTPUT);
+    pinMode (LED_4 , OUTPUT);
 
+    digitalWrite (LED_1 , LOW);
+    digitalWrite (LED_2 , LOW);
+    digitalWrite (LED_3 , LOW);
+    digitalWrite (LED_4 , LOW);
+
+#ifdef OTA
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    while (WiFi.waitForConnectResult() != WL_CONNECTED) 
+    {
+        Serial.println("Connection Failed! Rebooting...");
+        delay(5000);
+        ESP.restart();
+    }
+
+    // Port defaults to 3232
+    // ArduinoOTA.setPort(3232);
+
+    // Hostname defaults to esp3232-[MAC]
+    // ArduinoOTA.setHostname("myesp32");
+
+    // No authentication by default
+    // ArduinoOTA.setPassword("admin");
+
+    // Password can be set with it's md5 value as well
+    // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
+    // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
+
+// Over the Air Updates
+    ArduinoOTA
+        .onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH)
+            type = "sketch";
+        else // U_SPIFFS
+            type = "filesystem";
+
+        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+        Serial.println("Start updating " + type);
+        })
+        .onEnd([]() {
+            Serial.println("\nEnd");
+        })
+        .onProgress([](unsigned int progress, unsigned int total) 
+        {
+            Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+        })
+        .onError([](ota_error_t error) {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR) Serial.println("End Failed");
+        });
+
+    ArduinoOTA.begin();
+
+    Serial.println("Wifi Ready");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    digitalWrite (LED_4 , HIGH);// wifi started
+    digitalWrite (LED_3 , LOW);// wifi started
+
+#endif
     // Start the TFT
     tft.begin();
     tft.setRotation(1);
     tft.fillScreen(BLACK);
     tft.setTextDatum (TL_DATUM);
 
-    tft.setFreeFont(FSS9);
+    tft.setFreeFont(FSS12);
+ 
     paddingBaro = tft.textWidth ("9999.9" , 1);
 
+    tft.setFreeFont (FSS9);
     // Set up the Barometer chip
     /* Default settings from datasheet. */
 #ifdef BMP
-    bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
-                    Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
-                    Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
-                    Adafruit_BMP280::FILTER_X16,      /* Filtering. */
-                    Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
-
-#endif
-    if (!bmp.begin())
+    if (!bmp.begin(0x76))
     {
         Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
     }
+#endif
+    Wire.begin();
+
+
+    // make a unique number from the mac address
+    uint8_t mac[6];
+    WiFi.macAddress (mac);
+    unsigned long uniqueId = (mac[3] << 16) | (mac[4] <<  8) | mac[5];
+
+    // setup pwm
+    // channel , freq , resolution
+    //ledcSetup (0,5000,8);
+
+    // Can Bus Set up
+    // Reserve enough buffer for sending all messages. 
+    NMEA2000.SetN2kCANSendFrameBufSize(250);
+    // Set Product information
+    NMEA2000.SetProductInformation("00000001", // Manufacturer's Model serial code
+                                 100, // Manufacturer's product code
+                                 "Barograph ESP32",  // Manufacturer's Model ID
+                                 "1.0.0.0 (2020-08-15)",  // Manufacturer's Software version code
+                                 "1.0.2.0 (2019-08-15)" // Manufacturer's Model version
+                                 );
+    // Set device information
+    NMEA2000.SetDeviceInformation(uniqueId, // Unique number. Use e.g. Serial number.
+                                132, // Device function=Analog to NMEA 2000 Gateway. See codes on http://www.nmea.org/Assets/20120726%20nmea%202000%20class%20&%20function%20codes%20v%202.00.pdf
+                                25, // Device class=Inter/Intranetwork Device. See codes on  http://www.nmea.org/Assets/20120726%20nmea%202000%20class%20&%20function%20codes%20v%202.00.pdf
+                                2046 // Just choosen free from code list on http://www.nmea.org/Assets/20121020%20nmea%202000%20registration%20list.pdf                               
+                               );
+    
+    // If you also want to see all traffic on the bus use N2km_ListenAndNode instead of N2km_NodeOnly below
+    NMEA2000.SetForwardStream(&Serial);
+    NMEA2000.SetMode(tNMEA2000::N2km_NodeOnly , 23);
+    NMEA2000.EnableForward(false); // Disable all msg forwarding to USB (=Serial)
+    NMEA2000.SendProductInformation (0xff);
+    NMEA2000.Open();
+   
 }
 
+//---------------------------------------------------------------------
+//
+//---------------------------------------------------------------------
+void SendPressure (uint16_t baro)
+{
+    tN2kMsg N2kMsg;
+    SetN2kPressure(N2kMsg,0,2,N2kps_Atmospheric,baro*10);
+    NMEA2000.SendMsg(N2kMsg);
+}
 //---------------------------------------------------------------------
 //
 //---------------------------------------------------------------------
 void DrawInitScreen()
 {
     // put a box on the screen
+    tft.setFreeFont (FSS12);
+
+    tft.fillScreen (BLACK);
     tft.fillRect (0, 0 , 479 , 4 , GREEN);      // Top Line
     tft.fillRect (0, 316 , 479 , 4 , GREEN);    // Bottom Line
     tft.fillRect (0 , 4 , 4 , 319 , GREEN);     // Left Line
@@ -117,6 +269,7 @@ void DrawInitScreen()
     tft.fillRect (66 , 70 , 2 , 250 , GREEN);   // Vertical Divider
 
     tft.setTextColor(YELLOW);
+    tft.setFreeFont (FSS9);
     tft.setTextSize(1);
 
     tft.setCursor (10, 30);
@@ -127,6 +280,8 @@ void DrawInitScreen()
     tft.print("Trend");
     tft.setCursor (260, 30);
     tft.print("Low");
+    tft.setCursor (410, 30);
+    tft.print("24 Hrs");
 }
 
 //---------------------------------------------------------------------
@@ -135,7 +290,7 @@ void DrawInitScreen()
 void UpdateDelta (int16_t delta)
 {
  
-    int16_t x = 310 + paddingBaro;
+    int16_t x = 290 + paddingBaro;
     int16_t y = 42;
 
     tft.setFreeFont(FSS12);
@@ -153,7 +308,7 @@ void UpdateLow (uint16_t low)
     tft.setFreeFont(FSS12);
     tft.setTextColor(CYAN , BLACK);
     tft.setTextDatum (TR_DATUM);
-    int16_t x = 318 + paddingBaro;
+    int16_t x = 298 + paddingBaro;
     int16_t y = 12;
     tft.setTextPadding (paddingBaro);
     tft.drawFloat (low / 10.0 , 1 , x , y , 1);
@@ -167,7 +322,7 @@ void UpdateHigh (uint16_t high)
     tft.setFreeFont(FSS12);
     tft.setTextColor(CYAN , BLACK);
     tft.setTextDatum (TR_DATUM);
-    int16_t x = 200 + paddingBaro;
+    int16_t x = 180 + paddingBaro;
     int16_t y = 12;
     tft.setTextPadding (paddingBaro);
     tft.drawFloat (high / 10.0 , 1 , x , y , 1);
@@ -178,8 +333,8 @@ void UpdateHigh (uint16_t high)
 //---------------------------------------------------------------------
 void UpdateTrend (int16_t baro)
 {
-    static int16_t padding = tft.textWidth ("Failing Rapidly");
-
+    tft.setFreeFont(FSS12);
+    static int16_t padding = tft.textWidth (" Falling Rapidlyy ");
     // get last update and 3 hours before
     int16_t offset = m_baroDataHead - POINTS_PER_DAY / 8;
     if (offset < 0) offset += POINTS_PER_DAY; 
@@ -217,7 +372,6 @@ void UpdateTrend (int16_t baro)
     int16_t x = 80;
     int16_t y = 42;
     
-    tft.setFreeFont(FSS12);
     tft.setTextColor(MAGENTA , BLACK);
     tft.setTextDatum (TL_DATUM);
     tft.setTextPadding (padding);
@@ -241,7 +395,7 @@ void UpdateBaro (int16_t baro)
     UpdateLow (low);
 
     tft.setFreeFont(FSS12);
-    int16_t x = 78 + paddingBaro;
+    int16_t x = 58 + paddingBaro;
     int16_t y = 12;
     tft.setTextDatum (TR_DATUM);
     tft.setTextColor(CYAN , BLACK);
@@ -268,8 +422,7 @@ void GetHighLowRange (uint16_t& high , uint16_t &low , uint16_t &range)
             else if (value > high) 
                 high = value;
         }        
-    }
-    
+    }   
     range = high - low;
 }
 
@@ -283,6 +436,8 @@ uint16_t GetRange (uint16_t range)
     else if (range < 50) range = 50;
     else if (range < 100) range = 100;
     else if (range < 200) range = 200;
+    else if (range < 300) range = 300;
+    else if (range < 400) range = 400;
     else if (range < 500) range = 500;
     else range =  1000; 
     return range;
@@ -316,6 +471,7 @@ int16_t Interpolate (int16_t value , int16_t fromLow , int16_t fromHigh , int16_
     float result = (fvalue - ffromLow ) * (ftoHigh - ftoLow) / (ffromHigh - ffromLow) + ftoLow;
     return (int16_t) result;
 }
+
 //----------------------------------------
 //
 //----------------------------------------
@@ -356,12 +512,12 @@ void AddScale (uint16_t baro , uint16_t stepVal)
 
     tft.setFreeFont(FSS9);
     tft.setTextColor(CYAN , BLACK);
-    tft.setTextPadding (paddingBaro);
+    tft.setTextPadding (paddingBaro-20);
     tft.setTextDatum (TR_DATUM);
 
     for (int i = 0 ; i <= 5 ; i++)
     {
-        tft.drawFloat (baro / 10.0 , 1 , 8+paddingBaro , yPos , 1);
+        tft.drawFloat (baro / 10.0 , 1 , paddingBaro-8 , yPos , 1);
         baro += stepVal;
         yPos -= 45;
     }
@@ -458,17 +614,57 @@ void DrawBaro (uint16_t baro)
 //----------------------------------------
 //
 //----------------------------------------
+void WriteEEPROM(int deviceaddress, unsigned int eeaddress, byte data ) 
+{
+    int addrOffset = eeaddress >> 8;
+    addrOffset <<= 1;
+    deviceaddress = deviceaddress | addrOffset;
+    
+    Wire.beginTransmission(deviceaddress);// + addrOffset);
+    //Wire.write((int)(addrOffset)); // LSB
+    Wire.write((int)(eeaddress & 0xFF)); // LSB
+    Wire.write(data);
+    Wire.endTransmission();
+ 
+    delay(5);
+}
+ 
+//----------------------------------------
+//
+//----------------------------------------
+byte ReadEEPROM(int deviceaddress, unsigned int eeaddress ) 
+{
+    byte rdata = 0xFF;
+    int addrOffset = eeaddress >> 8;
+    addrOffset <<= 1;
+    deviceaddress = deviceaddress | addrOffset;
+
+    Wire.beginTransmission(deviceaddress);// + addrOffset);
+    //Wire.write((int)(addrOffset)); // LSB
+    Wire.write((int)(eeaddress & 0xFF)); // LSB
+    Wire.endTransmission();
+ 
+    Wire.requestFrom(deviceaddress,1);
+ 
+    if (Wire.available()) rdata = Wire.read();
+ 
+    return rdata;
+}
+
+//----------------------------------------
+//
+//----------------------------------------
 void StoreData ()
 {
     uint16_t offset = m_baroDataHead;
 
     for (int i = 0 ; i < BARO_ARRAY_SIZE ; i++)
     {
-        //EEPROM.update (i*2 , m_baroDataArray[i] & 0xff);
-        //EEPROM.update ((i*2)+1 , (m_baroDataArray[i] >> 8) & 0xff);
+        WriteEEPROM (EepromAddr , i*2 , m_baroDataArray[i] & 0xff);
+        WriteEEPROM (EepromAddr , (i*2)+1 , (m_baroDataArray[i] >> 8) & 0xff);
     }
-    //EEPROM.update (0x3fe , m_baroDataHead &0xff);
-    //EEPROM.update (0x3ff , (m_baroDataHead >> 8) &0xff);   
+    WriteEEPROM (EepromAddr , 0x3fe , m_baroDataHead &0xff);
+    WriteEEPROM (EepromAddr , 0x3ff , (m_baroDataHead >> 8) &0xff);   
 }
 
 //----------------------------------------
@@ -478,8 +674,8 @@ void ReadData ()
 {
     for (int i = 0 ; i < BARO_ARRAY_SIZE ; i++)
     {
-        uint16_t value = EEPROM.read (i*2);
-        value |= EEPROM.read((i*2)+1) << 8;
+        uint16_t value = ReadEEPROM (EepromAddr , i*2);
+        value |= ReadEEPROM(EepromAddr , (i*2)+1) << 8;
         if (value == 0xffff || value < 9500 || value > 10500)
         {
             m_baroDataArray[i] = 10134;
@@ -489,8 +685,8 @@ void ReadData ()
 
     }
     // Read in the data write position
-    m_baroDataHead = EEPROM.read (0x3fe);
-    m_baroDataHead |= (EEPROM.read (0x3ff) << 8);
+    m_baroDataHead = ReadEEPROM (EepromAddr , 0x3fe);
+    m_baroDataHead |= (ReadEEPROM (EepromAddr , 0x3ff) << 8);
     if (m_baroDataHead >= BARO_ARRAY_SIZE)
         m_baroDataHead = 0;
     
@@ -525,27 +721,73 @@ uint16_t FilterBaro (uint16_t baro)
     return total / FILTER_SIZE;
 }
 
+
+//----------------------------------------
+//
+//----------------------------------------
+void PWMSetup (int led ,int channel, int duty)
+{
+    ledcSetup (channel , 5000 , 8);
+    ledcAttachPin (led , channel);
+    ledcWrite (channel , duty);
+}
+
+//----------------------------------------
+//
+//----------------------------------------
+void SplashScreen ()
+{
+    const int cBackground = TFT_BLACK;
+    tft.fillScreen (cBackground);
+    tft.setFreeFont (FSS24);
+    tft.setTextColor(TFT_SKYBLUE , cBackground);
+    tft.setTextDatum (TL_DATUM);
+    tft.drawString ("Barograph" , 150 , 100 , 1);
+
+    tft.setFreeFont (FSS12);
+    tft.drawString ("Version" , 150 , 150 , 1);
+    tft.drawString (version , 300 , 150 , 1);
+    tft.setTextColor(TFT_YELLOW , cBackground);
+    tft.drawString ("Lee Playford (c) 2020" , 150 , 200 , 1);
+}
+
 //----------------------------------------
 //
 //----------------------------------------
 void loop()
 {
-    // draw the screen
+    SplashScreen();
+    delay (5000);
+     
+     // draw the screen
     DrawInitScreen ();
-#ifdef BMP    
-    //ReadData();
-#endif    
+    ReadData();
     // Local variables
 
     uint32_t lastReadTime = 0;
     uint32_t lastUpdateTime = 0;
-
+    uint32_t lastSendTime = 0;
     int16_t lastPressure = 0;
+
+#ifdef BMP
     int16_t int_pressure = (int16_t)(bmp.readPressure() / 10.0);
+#else
+    int16_t int_pressure = 10134;
+#endif
+
     int16_t counter = 0;
     
     while (true)
     {
+        if (lastSendTime == 0 || millis() > lastSendTime + 1000)
+        {
+            SendPressure(int_pressure);
+            lastSendTime = millis();
+            
+            digitalWrite (LED_3 , LED_1_State);
+            LED_1_State = !LED_1_State;
+            
+        }
         if (lastReadTime == 0 || millis() - lastReadTime > SAMPLE_TIME / 8)
         {
             lastReadTime = millis();
@@ -575,6 +817,10 @@ void loop()
             if (++counter%20 == 0)  // store every hour
                 StoreData();
         }      
-        delay(100);
+        delay(10);
+        ArduinoOTA.handle();
+        NMEA2000.ParseMessages();
+
+                
     }
 }
