@@ -1,19 +1,15 @@
-#include <EEPROM.h>
 
 
-#include <Adafruit_GFX.h>
+ #include <EEPROM.h>
+
+
 #include <Adafruit_BMP280.h>
 #include <stdio.h>
+#include <TFT_eSPI.h>
 
-#if defined(_GFXFONT_H_)           //are we using the new library?
-#include <Fonts/FreeSans9pt7b.h>
-#include <Fonts/FreeSans12pt7b.h>
-#define ADJ_BASELINE 11            //new fonts setCursor to bottom of letter
-#else
-#define ADJ_BASELINE 0             //legacy setCursor to top of letter
-#endif
-#include <MCUFRIEND_kbv.h>
-MCUFRIEND_kbv tft;
+#include "Free_Fonts.h"
+
+TFT_eSPI tft = TFT_eSPI();
 
 // Colour Defines
 #define BLACK   0x0000
@@ -69,38 +65,41 @@ uint16_t m_baroDataHead = 0;
 uint16_t m_baroFilter[FILTER_SIZE]= {0};
 uint16_t m_yPosFilter[FILTER_SIZE]= {0};
 
+const uint16_t MIN_BARO = 9600;
+const uint16_t MAX_BARO = 10500;
+static int paddingBaro = 0;
 
+#define BMP 
 //---------------------------------------------------------------------
 //
 //---------------------------------------------------------------------
 void setup() 
 {
     // put your setup code here, to run once:
-    //Serial.begin(38400);
+    Serial.begin(115200);
 
-    // Reset the TFT
-    tft.reset();
-    ID = tft.readID();
-    if (ID == 0xD3D3) ID = 0x9486; // write-only shield
-    tft.begin(ID);
+    // Start the TFT
+    tft.begin();
     tft.setRotation(1);
     tft.fillScreen(BLACK);
+    tft.setTextDatum (TL_DATUM);
 
-#if defined(_GFXFONT_H_)
-    tft.setFont(&FreeSans9pt7b);
-#endif
+    tft.setFreeFont(FSS9);
+    paddingBaro = tft.textWidth ("9999.9" , 1);
 
     // Set up the Barometer chip
     /* Default settings from datasheet. */
+#ifdef BMP
     bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
                     Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
                     Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
                     Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                     Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
 
+#endif
     if (!bmp.begin())
     {
-    //    Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
+        Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
     }
 }
 
@@ -117,10 +116,8 @@ void DrawInitScreen()
     tft.fillRect (0, 66 , 475 , 4 , GREEN);     // Horiz Divider
     tft.fillRect (66 , 70 , 2 , 250 , GREEN);   // Vertical Divider
 
-    tft.setCursor (1, 20);
     tft.setTextColor(YELLOW);
     tft.setTextSize(1);
-
 
     tft.setCursor (10, 30);
     tft.print("Baro");
@@ -135,72 +132,45 @@ void DrawInitScreen()
 //---------------------------------------------------------------------
 //
 //---------------------------------------------------------------------
-void UpdateDelta (char* delta)
+void UpdateDelta (int16_t delta)
 {
-    static char lastDelta[6] = {"10.0"};
+ 
+    int16_t x = 310 + paddingBaro;
+    int16_t y = 42;
 
-    tft.setFont(&FreeSans12pt7b);
-    int16_t x, y, x1, y1;
-
-    x = 310;
-    y = 60;
-
+    tft.setFreeFont(FSS12);
     tft.setTextColor(CYAN , BLACK);
-    tft.setTextSize(1);
-    uint16_t w , h;
-    tft.getTextBounds (lastDelta , x , y , &x1, &y1 , &w , &h);
-    tft.fillRect (x1, y1, w, h, BLACK);
-    tft.setCursor (x, y);
-    tft.print(delta);
-
-    strcpy (lastDelta , delta);
+    tft.setTextDatum (TR_DATUM);
+    tft.setTextPadding (paddingBaro);
+    tft.drawFloat (delta / 10.0 , 1 , x , y , 1);
 }
 
 //---------------------------------------------------------------------
 //
 //---------------------------------------------------------------------
-void UpdateLow (char* low)
+void UpdateLow (uint16_t low)
 {
-    static char lastLow[7] = {"1013.5"};
-
-    tft.setFont(&FreeSans12pt7b);
-    int16_t x, y, x1, y1;
-
-    x = 310;
-    y = 30;
-
+    tft.setFreeFont(FSS12);
     tft.setTextColor(CYAN , BLACK);
-    tft.setTextSize(1);
-    uint16_t w , h;
-    tft.getTextBounds (lastLow , x , y , &x1, &y1 , &w , &h);
-    tft.fillRect (x1, y1, w, h, BLACK);
-    tft.setCursor (x, y);
-    tft.print(low);
-
-    strcpy (lastLow , low);
+    tft.setTextDatum (TR_DATUM);
+    int16_t x = 318 + paddingBaro;
+    int16_t y = 12;
+    tft.setTextPadding (paddingBaro);
+    tft.drawFloat (low / 10.0 , 1 , x , y , 1);
 }
-
 
 //---------------------------------------------------------------------
 //
 //---------------------------------------------------------------------
-void UpdateHigh (char* high)
-{
-    static char lastHigh[7] = {"1013.6"};
-    tft.setFont(&FreeSans12pt7b);
-
+void UpdateHigh (uint16_t high)
+{   
+    tft.setFreeFont(FSS12);
     tft.setTextColor(CYAN , BLACK);
-    tft.setTextSize(1);
-    int16_t x, y, x1, y1;
-    uint16_t w , h;
-    x = 180;
-    y = 30;
-    tft.getTextBounds (lastHigh , x , y , &x1, &y1 , &w , &h);
-    tft.fillRect (x1, y1, w, h, BLACK);
-    tft.setCursor (x, y);
-    tft.print(high);
-
-    strcpy (lastHigh , high);
+    tft.setTextDatum (TR_DATUM);
+    int16_t x = 200 + paddingBaro;
+    int16_t y = 12;
+    tft.setTextPadding (paddingBaro);
+    tft.drawFloat (high / 10.0 , 1 , x , y , 1);
 }
 
 //---------------------------------------------------------------------
@@ -208,19 +178,18 @@ void UpdateHigh (char* high)
 //---------------------------------------------------------------------
 void UpdateTrend (int16_t baro)
 {
+    static int16_t padding = tft.textWidth ("Failing Rapidly");
+
     // get last update and 3 hours before
     int16_t offset = m_baroDataHead - POINTS_PER_DAY / 8;
     if (offset < 0) offset += POINTS_PER_DAY; 
     int16_t threeHours = m_baroDataArray[offset] ;
-
+    if (threeHours < MIN_BARO || threeHours > MAX_BARO)
+        threeHours = baro;
+            
     int16_t diff = baro - threeHours;
-    char buf[6];
-    if ( diff < 0)
-        sprintf (buf , "-%d.%d" , abs(diff / 10) , abs(diff % 10));
-    else
-        sprintf (buf , "%d.%d" , abs(diff / 10) , abs(diff % 10));
     
-    UpdateDelta(buf);
+    UpdateDelta(diff);
     const int8_t BUF_SIZE = 18;
     char f_r [BUF_SIZE];
     memset (f_r , 0x0 , BUF_SIZE);
@@ -245,36 +214,16 @@ void UpdateTrend (int16_t baro)
             strcat (f_r , "Rapidly");
     } 
 
-    static char lastTrend[BUF_SIZE] = {"Steady"};
-    tft.setFont(&FreeSans12pt7b);
-
-    int16_t x, y, x1, y1;
-    x = 80;
-    y = 60;
+    int16_t x = 80;
+    int16_t y = 42;
     
-    tft.setCursor (x,y);
+    tft.setFreeFont(FSS12);
     tft.setTextColor(MAGENTA , BLACK);
-    tft.setTextSize(1);
-    uint16_t w , h;
-    tft.getTextBounds (lastTrend , x , y , &x1, &y1 , &w , &h);
-    tft.fillRect (x1, y1, w, h, BLACK);
-    tft.setCursor (x, y);
-    tft.print(f_r);
-
-    strcpy (lastTrend , f_r);
+    tft.setTextDatum (TL_DATUM);
+    tft.setTextPadding (padding);
+    tft.drawString (f_r , x , y , 1);
 }
 
-//---------------------------------------------------------------------
-//
-//---------------------------------------------------------------------
-void FormatBaro(int16_t baro , char * buffer)
-{
-    if (baro < 10000)
-        sprintf (buffer , "  %d.%d" , baro / 10 , baro % 10);
-    else
-        sprintf (buffer , "%d.%d" , baro / 10 , baro % 10);
-    
-}
 
 //---------------------------------------------------------------------
 //
@@ -282,35 +231,22 @@ void FormatBaro(int16_t baro , char * buffer)
 void UpdateBaro (int16_t baro)
 {
     UpdateTrend (baro);
-    char buf[7];
-  
-    uint16_t high , low , range;
+
+    uint16_t high = baro;
+    uint16_t low = baro;
+    uint16_t range = 0;;
     GetHighLowRange(high , low , range);
-    //ScaleHighLowRange(high, low, range);
 
-    FormatBaro (high , buf);
-    UpdateHigh (buf);
-    FormatBaro (low , buf);
-    UpdateLow (buf);
+    UpdateHigh (high);
+    UpdateLow (low);
 
-    FormatBaro (baro , buf);
-  
-    static char lastBaro[7] = {"1013.3"};
-
-    tft.setFont(&FreeSans12pt7b);
-    tft.setCursor (1, 20);
+    tft.setFreeFont(FSS12);
+    int16_t x = 78 + paddingBaro;
+    int16_t y = 12;
+    tft.setTextDatum (TR_DATUM);
     tft.setTextColor(CYAN , BLACK);
-    tft.setTextSize(1);
-    int16_t x, y, x1, y1;
-    uint16_t w , h;
-    x = 60;
-    y = 30;
-    tft.getTextBounds (lastBaro , x , y , &x1, &y1 , &w , &h);
-    tft.fillRect (x1, y1, w, h, BLACK);
-    tft.setCursor (x, y);
-    tft.print(buf);
-
-    strcpy (lastBaro , buf);
+    tft.setTextPadding (paddingBaro);
+    tft.drawFloat (baro / 10.0 , 1 , x , y , 1);
 }
 
 
@@ -320,16 +256,18 @@ void UpdateBaro (int16_t baro)
 void GetHighLowRange (uint16_t& high , uint16_t &low , uint16_t &range)
 {
     // loop the data and find the high and low
-    high = 0;
-    low = 0xFFFF ; 
     range = 0;    
     
     for (uint16_t i = 0 ; i < BARO_ARRAY_SIZE ; i++)
     {
-        if (m_baroDataArray[i] < low) 
-            low = m_baroDataArray[i];
-        else if (m_baroDataArray[i] > high) 
-            high = m_baroDataArray[i];        
+        uint16_t value = m_baroDataArray[i];
+        if (value > MIN_BARO && value < MAX_BARO)
+        {
+            if (value < low ) 
+                low = value;
+            else if (value > high) 
+                high = value;
+        }        
     }
     
     range = high - low;
@@ -414,18 +352,16 @@ void AddScale (uint16_t baro , uint16_t stepVal)
 {
     // Clear out box
     tft.fillRect (5,70,62,245 , BLACK);
-    uint16_t yPos = 312;
+    uint16_t yPos = 298;
 
-    tft.setFont(&FreeSans9pt7b);
+    tft.setFreeFont(FSS9);
     tft.setTextColor(CYAN , BLACK);
-    tft.setTextSize(1);
-    char buf[8];
+    tft.setTextPadding (paddingBaro);
+    tft.setTextDatum (TR_DATUM);
 
     for (int i = 0 ; i <= 5 ; i++)
     {
-        tft.setCursor (8, yPos);
-        FormatBaro (baro , buf);            
-        tft.print(buf);
+        tft.drawFloat (baro / 10.0 , 1 , 8+paddingBaro , yPos , 1);
         baro += stepVal;
         yPos -= 45;
     }
@@ -441,8 +377,9 @@ void DrawBaro (uint16_t baro)
     
     // get the high low and range
     uint16_t high , low , range;
-    static uint16_t lastHigh , lastLow , lastRange;
-    
+    static uint16_t lastHigh = 0 , lastLow = 0, lastRange = 0;
+    high = baro;
+    low = baro;
     GetHighLowRange (high , low , range);
     ScaleHighLowRange(high, low, range);
 
@@ -485,10 +422,10 @@ void DrawBaro (uint16_t baro)
             // Over draw the previous colours
             for (int x = lastX ; x <= xPos ; x++)
             {
-                if ((x-22)%45 == 0 )
-                    tft.drawFastVLine (x , TOP_GRAPH , GRAPH_HEIGHT , DARKGREEN);
-                else if (x == 426)
+                if (x == 420)
                     tft.drawFastVLine (x , TOP_GRAPH , GRAPH_HEIGHT , YELLOW);
+                else if ((x-20)%50 == 0 )
+                    tft.drawFastVLine (x , TOP_GRAPH , GRAPH_HEIGHT , DARKGREEN);
                 else
                     tft.drawFastVLine (x , TOP_GRAPH , GRAPH_HEIGHT , BLACK);
             }
@@ -527,11 +464,11 @@ void StoreData ()
 
     for (int i = 0 ; i < BARO_ARRAY_SIZE ; i++)
     {
-        EEPROM.update (i*2 , m_baroDataArray[i] & 0xff);
-        EEPROM.update ((i*2)+1 , (m_baroDataArray[i] >> 8) & 0xff);
+        //EEPROM.update (i*2 , m_baroDataArray[i] & 0xff);
+        //EEPROM.update ((i*2)+1 , (m_baroDataArray[i] >> 8) & 0xff);
     }
-    EEPROM.update (0x3fe , m_baroDataHead &0xff);
-    EEPROM.update (0x3ff , (m_baroDataHead >> 8) &0xff);   
+    //EEPROM.update (0x3fe , m_baroDataHead &0xff);
+    //EEPROM.update (0x3ff , (m_baroDataHead >> 8) &0xff);   
 }
 
 //----------------------------------------
@@ -595,22 +532,28 @@ void loop()
 {
     // draw the screen
     DrawInitScreen ();
-    ReadData();
-    
+#ifdef BMP    
+    //ReadData();
+#endif    
     // Local variables
 
     uint32_t lastReadTime = 0;
     uint32_t lastUpdateTime = 0;
 
     int16_t lastPressure = 0;
-    int16_t int_pressure = 0;
+    int16_t int_pressure = (int16_t)(bmp.readPressure() / 10.0);
     int16_t counter = 0;
+    
     while (true)
     {
         if (lastReadTime == 0 || millis() - lastReadTime > SAMPLE_TIME / 8)
         {
             lastReadTime = millis();
+#ifdef BMP
             int_pressure = (int16_t)(bmp.readPressure() / 10.0);
+#else
+            int_pressure = 10134;
+#endif
             int_pressure = FilterBaro (int_pressure);
         }        
       
