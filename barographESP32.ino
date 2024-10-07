@@ -1,3 +1,5 @@
+#include <Wire.h>
+
 //-------------------------------------------------
 //
 // Project BaroGraph
@@ -5,7 +7,7 @@
 //
 //
 //-------------------------------------------------
-char version[] = "1.01e";
+char version[] = "1.01f";
 
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
@@ -55,6 +57,8 @@ bool LED_2_State = 0;
 bool LED_3_State = 0;
 bool LED_4_State = 0;
 
+bool EEPROM_TYPE = 0;
+
 uint16_t ID;
 uint16_t HEIGHT = 319;
 uint16_t WIDTH = 479;
@@ -102,7 +106,7 @@ const char* ssid = "TALKTALK4AD3F0";
 const char* password = "C3AKAC4R";
  
  #define BMP 
- #define OTA
+ //#define OTA
  
 //---------------------------------------------------------------------
 //
@@ -124,6 +128,7 @@ void setup()
     digitalWrite (LED_2 , LOW);
     digitalWrite (LED_3 , LOW);
     digitalWrite (LED_4 , LOW);
+
 
 #ifdef OTA
     WiFi.mode(WIFI_STA);
@@ -206,6 +211,7 @@ void setup()
     }
 #endif
     Wire.begin();
+    Wire.setClock(400000);
 
 
     // make a unique number from the mac address
@@ -248,6 +254,7 @@ void setup()
 //---------------------------------------------------------------------
 void SendPressure (uint16_t baro)
 {
+    Serial.println("Sending Baro");
     tN2kMsg N2kMsg;
     SetN2kPressure(N2kMsg,0,2,N2kps_Atmospheric,baro*10);
     NMEA2000.SendMsg(N2kMsg);
@@ -258,6 +265,7 @@ void SendPressure (uint16_t baro)
 void DrawInitScreen()
 {
     // put a box on the screen
+    Serial.print ("draw init screen");
     tft.setFreeFont (FSS12);
 
     tft.fillScreen (BLACK);
@@ -616,12 +624,42 @@ void DrawBaro (uint16_t baro)
 //----------------------------------------
 void WriteEEPROM(int deviceaddress, unsigned int eeaddress, byte data ) 
 {
+    if (EEPROM_TYPE == 0)
+    {
+        WriteEEPROM0 (deviceaddress , eeaddress , data);
+    }
+    else
+    {
+        WriteEEPROM1 (deviceaddress , eeaddress , data);
+    }
+}
+
+//----------------------------------------
+//
+//----------------------------------------
+byte ReadEEPROM(int deviceaddress, unsigned int eeaddress ) 
+{
+    if (EEPROM_TYPE == 0)
+    {
+        return ReadEEPROM0 (deviceaddress , eeaddress);
+    }
+    else
+    {
+        return ReadEEPROM1 (deviceaddress , eeaddress);
+    }
+}
+
+//----------------------------------------
+//
+//----------------------------------------
+void WriteEEPROM0(int deviceaddress, unsigned int eeaddress, byte data ) 
+{
     int addrOffset = eeaddress >> 8;
     addrOffset <<= 1;
     deviceaddress = deviceaddress | addrOffset;
     
     Wire.beginTransmission(deviceaddress);// + addrOffset);
-    //Wire.write((int)(addrOffset)); // LSB
+    //Wire.write((int)((eeaddress >> 8) & 0xff)); // MSB
     Wire.write((int)(eeaddress & 0xFF)); // LSB
     Wire.write(data);
     Wire.endTransmission();
@@ -632,7 +670,7 @@ void WriteEEPROM(int deviceaddress, unsigned int eeaddress, byte data )
 //----------------------------------------
 //
 //----------------------------------------
-byte ReadEEPROM(int deviceaddress, unsigned int eeaddress ) 
+byte ReadEEPROM0(int deviceaddress, unsigned int eeaddress ) 
 {
     byte rdata = 0xFF;
     int addrOffset = eeaddress >> 8;
@@ -640,7 +678,55 @@ byte ReadEEPROM(int deviceaddress, unsigned int eeaddress )
     deviceaddress = deviceaddress | addrOffset;
 
     Wire.beginTransmission(deviceaddress);// + addrOffset);
-    //Wire.write((int)(addrOffset)); // LSB
+    //Wire.write((int)((eeaddress>> 8) & 0xff)); // MSB
+    Wire.write((int)(eeaddress & 0xFF)); // LSB
+    Wire.endTransmission();
+ 
+    Wire.requestFrom(deviceaddress,1);
+ 
+    if (Wire.available()) 
+        rdata = Wire.read();
+    else
+    {
+        // ROM read failure switch to other type
+        EEPROM_TYPE = 1;
+        return ReadEEPROM1 (deviceaddress , eeaddress);
+    }
+ 
+    return rdata;
+}
+
+
+//----------------------------------------
+//
+//----------------------------------------
+void WriteEEPROM1(int deviceaddress, unsigned int eeaddress, byte data ) 
+{
+    int addrOffset = eeaddress >> 8;
+    addrOffset <<= 1;
+    deviceaddress = deviceaddress;// | addrOffset;
+    
+    Wire.beginTransmission(deviceaddress);// + addrOffset);
+    Wire.write((int)((eeaddress >> 8) & 0xff)); // MSB
+    Wire.write((int)(eeaddress & 0xFF)); // LSB
+    Wire.write(data);
+    Wire.endTransmission();
+ 
+    delay(5);
+}
+ 
+//----------------------------------------
+//
+//----------------------------------------
+byte ReadEEPROM1(int deviceaddress, unsigned int eeaddress ) 
+{
+    byte rdata = 0xFF;
+    int addrOffset = eeaddress >> 8;
+    addrOffset <<= 1;
+    deviceaddress = deviceaddress;// | addrOffset;
+
+    Wire.beginTransmission(deviceaddress);// + addrOffset);
+    Wire.write((int)((eeaddress>> 8) & 0xff)); // MSB
     Wire.write((int)(eeaddress & 0xFF)); // LSB
     Wire.endTransmission();
  
@@ -748,7 +834,7 @@ void SplashScreen ()
     tft.drawString ("Version" , 150 , 150 , 1);
     tft.drawString (version , 300 , 150 , 1);
     tft.setTextColor(TFT_YELLOW , cBackground);
-    tft.drawString ("Lee Playford (c) 2020" , 150 , 200 , 1);
+    tft.drawString ("Lee Playford (c) 2024" , 150 , 200 , 1);
 }
 
 //----------------------------------------
@@ -757,10 +843,28 @@ void SplashScreen ()
 void loop()
 {
     SplashScreen();
-    delay (5000);
-     
+    LED_1_State = HIGH;
+    LED_2_State = LOW;
+    
+    for (int i = 0 ; i < 10 ; i++)
+    {
+        digitalWrite (LED_1 , LED_1_State);
+        digitalWrite (LED_2 , LED_2_State);
+        digitalWrite (LED_3 , LED_1_State);
+        digitalWrite (LED_4 , LED_2_State);
+        LED_1_State = !LED_1_State;
+        LED_2_State = !LED_2_State;
+        delay (500);
+    }
+    digitalWrite (LED_1 , LOW);
+    digitalWrite (LED_2 , LOW);
+    digitalWrite (LED_3 , LOW);
+    digitalWrite (LED_4 , LOW);
+
      // draw the screen
     DrawInitScreen ();
+
+    // Read the eeprom
     ReadData();
     // Local variables
 
@@ -770,11 +874,11 @@ void loop()
     int16_t lastPressure = 0;
 
 #ifdef BMP
-    int16_t int_pressure = (int16_t)(bmp.readPressure() / 10.0);
+     int16_t int_pressure = (int16_t)(bmp.readPressure() / 10.0);
 #else
     int16_t int_pressure = 10134;
 #endif
-
+ 
     int16_t counter = 0;
     
     while (true)
@@ -784,8 +888,8 @@ void loop()
             SendPressure(int_pressure);
             lastSendTime = millis();
             
-            digitalWrite (LED_3 , LED_1_State);
-            LED_1_State = !LED_1_State;
+            //digitalWrite (LED_3 , LED_1_State);
+            //LED_1_State = !LED_1_State; save current
             
         }
         if (lastReadTime == 0 || millis() - lastReadTime > SAMPLE_TIME / 8)
@@ -818,7 +922,9 @@ void loop()
                 StoreData();
         }      
         delay(10);
+#ifdef OTA
         ArduinoOTA.handle();
+#endif
         NMEA2000.ParseMessages();
 
                 
