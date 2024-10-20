@@ -7,7 +7,7 @@
 //
 //
 //-------------------------------------------------
-char version[] = "1.01f";
+char version[] = "1.01g";
 
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
@@ -104,9 +104,11 @@ Stream *ForwardStream=&FORWARD_STREAM;
 // WIFI network defines
 const char* ssid = "TALKTALK4AD3F0";
 const char* password = "C3AKAC4R";
+bool wifiConnected = false;
  
  #define BMP 
- //#define OTA
+ #define OTA
+ #define TESTEEPROM
  
 //---------------------------------------------------------------------
 //
@@ -129,32 +131,23 @@ void setup()
     digitalWrite (LED_3 , LOW);
     digitalWrite (LED_4 , LOW);
 
-
 #ifdef OTA
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
-    while (WiFi.waitForConnectResult() != WL_CONNECTED) 
+    if (WiFi.waitForConnectResult() != WL_CONNECTED) 
     {
         Serial.println("Connection Failed! Rebooting...");
-        delay(5000);
-        ESP.restart();
+        //delay(5000);
+        //ESP.restart();
     }
+    else
+    {
+        wifiConnected = true;
+    
 
-    // Port defaults to 3232
-    // ArduinoOTA.setPort(3232);
-
-    // Hostname defaults to esp3232-[MAC]
-    // ArduinoOTA.setHostname("myesp32");
-
-    // No authentication by default
-    // ArduinoOTA.setPassword("admin");
-
-    // Password can be set with it's md5 value as well
-    // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
-    // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
-
+    
 // Over the Air Updates
-    ArduinoOTA
+      ArduinoOTA
         .onStart([]() {
         String type;
         if (ArduinoOTA.getCommand() == U_FLASH)
@@ -181,11 +174,12 @@ void setup()
         else if (error == OTA_END_ERROR) Serial.println("End Failed");
         });
 
-    ArduinoOTA.begin();
+      ArduinoOTA.begin();
 
-    Serial.println("Wifi Ready");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
+      Serial.println("Wifi Ready");
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+    }
 
     digitalWrite (LED_4 , HIGH);// wifi started
     digitalWrite (LED_3 , LOW);// wifi started
@@ -211,7 +205,8 @@ void setup()
     }
 #endif
     Wire.begin();
-    Wire.setClock(400000);
+    //Wire.setClock(400000);
+    Wire.setClock(100000);
 
 
     // make a unique number from the mac address
@@ -690,6 +685,7 @@ byte ReadEEPROM0(int deviceaddress, unsigned int eeaddress )
     {
         // ROM read failure switch to other type
         EEPROM_TYPE = 1;
+        Serial.println ("Switched to Type 1 Eeprom");
         return ReadEEPROM1 (deviceaddress , eeaddress);
     }
  
@@ -736,6 +732,31 @@ byte ReadEEPROM1(int deviceaddress, unsigned int eeaddress )
  
     return rdata;
 }
+
+//----------------------------------------
+// Test EEprom Code
+//----------------------------------------
+void TestEeprom()
+{
+      Serial.println ("Testing EEprom");
+      ReadEEPROM (EepromAddr , 0);
+      for (int i = 0 ; i < BARO_ARRAY_SIZE; i++)
+      {
+          WriteEEPROM (EepromAddr , i*2 , 0xaa);
+          WriteEEPROM (EepromAddr , (i*2)+1 , 0x55);
+          unsigned char byte1 = ReadEEPROM (EepromAddr , i*2);
+          unsigned char byte2 = ReadEEPROM (EepromAddr , (i*2) + 1);
+          if (byte1 != 0xaa || byte2 != 0x55)
+          {
+              Serial.printf ("Eeprom test Failure at %d %x %x\r\n" , i*2 , byte1 , byte2);
+          }
+          else
+          {
+              Serial.printf ("Eeprom test OK at %d %x %x\r\n" , i*2 , byte1 , byte2);
+          }
+      }
+}
+
 
 //----------------------------------------
 //
@@ -864,6 +885,10 @@ void loop()
      // draw the screen
     DrawInitScreen ();
 
+#ifdef TESTEEPROM
+    TestEeprom();
+#endif
+
     // Read the eeprom
     ReadData();
     // Local variables
@@ -923,7 +948,8 @@ void loop()
         }      
         delay(10);
 #ifdef OTA
-        ArduinoOTA.handle();
+        if (wifiConnected)
+          ArduinoOTA.handle();
 #endif
         NMEA2000.ParseMessages();
 
