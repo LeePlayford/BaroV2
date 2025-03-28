@@ -7,7 +7,7 @@
 //
 //
 //-------------------------------------------------
-char version[] = "1.01g";
+char version[] = "1.02";
 
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
@@ -57,7 +57,7 @@ bool LED_2_State = 0;
 bool LED_3_State = 0;
 bool LED_4_State = 0;
 
-bool EEPROM_TYPE = 0;
+bool EEPROM_TYPE = 1;
 
 uint16_t ID;
 uint16_t HEIGHT = 319;
@@ -105,10 +105,12 @@ Stream *ForwardStream=&FORWARD_STREAM;
 const char* ssid = "TALKTALK4AD3F0";
 const char* password = "C3AKAC4R";
 bool wifiConnected = false;
+
+void TestFillEeprom();
  
  #define BMP 
  #define OTA
- #define TESTEEPROM
+ //#define TESTEEPROM
  
 //---------------------------------------------------------------------
 //
@@ -179,6 +181,8 @@ void setup()
       Serial.println("Wifi Ready");
       Serial.print("IP address: ");
       Serial.println(WiFi.localIP());
+      Serial.print("MAC Address: ");
+      Serial.println(WiFi.macAddress());
     }
 
     digitalWrite (LED_4 , HIGH);// wifi started
@@ -249,7 +253,13 @@ void setup()
 //---------------------------------------------------------------------
 void SendPressure (uint16_t baro)
 {
-    Serial.println("Sending Baro");
+    static bool baroSent (false);
+    if (!baroSent)
+    {
+        // only output once
+        Serial.println("Sending Baro");
+        baroSent = true;
+    }
     tN2kMsg N2kMsg;
     SetN2kPressure(N2kMsg,0,2,N2kps_Atmospheric,baro*10);
     NMEA2000.SendMsg(N2kMsg);
@@ -260,7 +270,6 @@ void SendPressure (uint16_t baro)
 void DrawInitScreen()
 {
     // put a box on the screen
-    Serial.print ("draw init screen");
     tft.setFreeFont (FSS12);
 
     tft.fillScreen (BLACK);
@@ -742,6 +751,11 @@ void TestEeprom()
       ReadEEPROM (EepromAddr , 0);
       for (int i = 0 ; i < BARO_ARRAY_SIZE; i++)
       {
+          // read out existing data
+          unsigned char origData1 = ReadEEPROM (EepromAddr , i*2);
+          unsigned char origData2 = ReadEEPROM (EepromAddr , (i*2) + 1);
+                    
+          // Test Eeprom
           WriteEEPROM (EepromAddr , i*2 , 0xaa);
           WriteEEPROM (EepromAddr , (i*2)+1 , 0x55);
           unsigned char byte1 = ReadEEPROM (EepromAddr , i*2);
@@ -754,7 +768,36 @@ void TestEeprom()
           {
               Serial.printf ("Eeprom test OK at %d %x %x\r\n" , i*2 , byte1 , byte2);
           }
+
+          // Write back existing
+          WriteEEPROM (EepromAddr , i*2 , origData1);
+          WriteEEPROM (EepromAddr , (i*2)+1 , origData2);
+
       }
+}
+
+
+//-----------------------------------------------------
+// Test Fill EEprom
+//-----------------------------------------------------
+void TestFillEeprom()
+{
+    Serial.println ("Test Filling EEprom");
+    for (int i = 0 ; i < BARO_ARRAY_SIZE ; i++)
+    {
+        // Put a sine wave in it
+        // 400 points, each point is 1 degree
+        const float DEG2RAD = 180.0f / 3.141;
+        float sinValue = sin (i / DEG2RAD);
+        sinValue *= 20.0f;    //amplify by 10
+        // it to 1000mb
+        sinValue += 10000.0f;
+        int value = (int16_t) sinValue;
+        WriteEEPROM(EepromAddr , i*2 , value & 0xff);
+        WriteEEPROM(EepromAddr , (i*2)+1 , (value>>8) & 0xff);
+
+        m_baroDataArray[i] = sinValue;
+    }
 }
 
 
@@ -785,7 +828,9 @@ void ReadData ()
         value |= ReadEEPROM(EepromAddr , (i*2)+1) << 8;
         if (value == 0xffff || value < 9500 || value > 10500)
         {
-            m_baroDataArray[i] = 10134;
+            //m_baroDataArray[i] = 10134;
+            TestFillEeprom();
+            return;
         }
         else
             m_baroDataArray[i] = value;
@@ -855,7 +900,16 @@ void SplashScreen ()
     tft.drawString ("Version" , 150 , 150 , 1);
     tft.drawString (version , 300 , 150 , 1);
     tft.setTextColor(TFT_YELLOW , cBackground);
-    tft.drawString ("Lee Playford (c) 2024" , 150 , 200 , 1);
+    tft.drawString ("Lee Playford (c) 2025" , 150 , 200 , 1);
+
+    if (wifiConnected)
+    {
+        tft.setTextColor(TFT_GREEN , cBackground);
+        tft.drawString ("IPAddress" , 50 , 275 , 1);
+        tft.drawString (WiFi.localIP().toString() , 250 , 275 , 1);
+        tft.drawString ("MAC Address" , 50 , 300 , 1);
+        tft.drawString (WiFi.macAddress() , 250 , 300 , 1);
+    }
 }
 
 //----------------------------------------
@@ -944,7 +998,10 @@ void loop()
             DrawBaro (int_pressure);
 
             if (++counter%20 == 0)  // store every hour
+            {
                 StoreData();
+                Serial.println("Storing Data");
+            }
         }      
         delay(10);
 #ifdef OTA
