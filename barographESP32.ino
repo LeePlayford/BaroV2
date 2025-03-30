@@ -1,9 +1,7 @@
-#include <Wire.h>
-
 //-------------------------------------------------
 //
 // Project BaroGraph
-//
+// Supports Version 2 Hardware
 //
 //
 //-------------------------------------------------
@@ -12,6 +10,8 @@ char version[] = "1.02";
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
+#include <Adafruit_BMP280.h>
+
 #include <stdio.h>
 #include <TFT_eSPI.h>
 #include <WiFi.h>
@@ -44,7 +44,6 @@ TFT_eSPI tft = TFT_eSPI();
 #define DARKGREEN RGB(0,128,0)
 #define LIGHTGREEN RGB(0,255,128)
 
-Adafruit_BME280 bmp; // I2C
 
 //led defines
 #define LED_1 GPIO_NUM_4
@@ -109,8 +108,18 @@ bool wifiConnected = false;
 void TestFillEeprom();
  
  #define BMP 
+ //#define BME
  #define OTA
  //#define TESTEEPROM
+
+
+#ifdef BMP
+Adafruit_BMP280 bmp; // I2C
+#elif BME
+Adafruit_BME280 bme; // I2C
+#endif
+
+
  
 //---------------------------------------------------------------------
 //
@@ -188,7 +197,8 @@ void setup()
     digitalWrite (LED_4 , HIGH);// wifi started
     digitalWrite (LED_3 , LOW);// wifi started
 
-#endif
+#endif //OTA
+
     // Start the TFT
     tft.begin();
     tft.setRotation(1);
@@ -202,12 +212,28 @@ void setup()
     tft.setFreeFont (FSS9);
     // Set up the Barometer chip
     /* Default settings from datasheet. */
+
 #ifdef BMP
     if (!bmp.begin(0x76))
     {
         Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
     }
+    else
+    {
+    /* Default settings from datasheet. */
+        bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
+                        Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
+                        Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
+                        Adafruit_BMP280::FILTER_X16,      /* Filtering. */
+                        Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
+    }
+#elif BME
+    if (!bme.begin(0x76))
+    {
+        Serial.println(F("Could not find a valid BME280 sensor, check wiring!"));
+    }
 #endif
+
     Wire.begin();
     //Wire.setClock(400000);
     Wire.setClock(100000);
@@ -921,7 +947,7 @@ void loop()
     LED_1_State = HIGH;
     LED_2_State = LOW;
     
-    for (int i = 0 ; i < 10 ; i++)
+    for (int i = 0 ; i < 6 ; i++)
     {
         digitalWrite (LED_1 , LED_1_State);
         digitalWrite (LED_2 , LED_2_State);
@@ -954,6 +980,8 @@ void loop()
 
 #ifdef BMP
      int16_t int_pressure = (int16_t)(bmp.readPressure() / 10.0);
+#elif BME
+     int16_t int_pressure = (int16_t)(bme.readPressure() / 10.0);
 #else
     int16_t int_pressure = 10134;
 #endif
@@ -997,7 +1025,7 @@ void loop()
             // update the graph
             DrawBaro (int_pressure);
 
-            if (++counter%20 == 0)  // store every hour
+            if (++counter%10 == 0)  // store every 33 minutes
             {
                 StoreData();
                 Serial.println("Storing Data");
