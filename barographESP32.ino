@@ -1,11 +1,11 @@
 //-------------------------------------------------
 //
 // Project BaroGraph
-// Supports Version 2 Hardware
+// Supports Version 2+3 Hardware
 //
 //
 //-------------------------------------------------
-char version[] = "1.02";
+char version[] = "1.03";
 
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
@@ -43,20 +43,17 @@ TFT_eSPI tft = TFT_eSPI();
 #define DARKGREY  RGB(64, 64, 64)
 #define DARKGREEN RGB(0,128,0)
 #define LIGHTGREEN RGB(0,255,128)
-
+const int cBackground = TFT_BLACK;
 
 //led defines
-#define LED_1 GPIO_NUM_4
 #define LED_2 GPIO_NUM_33
 #define LED_3 GPIO_NUM_32
 #define LED_4 GPIO_NUM_25
 
-bool LED_1_State = 0;
 bool LED_2_State = 0;
 bool LED_3_State = 0;
 bool LED_4_State = 0;
 
-bool EEPROM_TYPE = 1;
 
 uint16_t ID;
 uint16_t HEIGHT = 319;
@@ -90,6 +87,8 @@ static int paddingBaro = 0;
 
 // eeprom data
 int EepromAddr = 0x50;  
+//bool EEPROM_TYPE = 0;   // 16kbit
+bool EEPROM_TYPE = 1;   // 128kbit
 
 
 // Define READ_STREAM to port, where you write data from PC e.g. with NMEA Simulator.
@@ -106,12 +105,15 @@ const char* password = "C3AKAC4R";
 bool wifiConnected = false;
 
 void TestFillEeprom();
+void RunBoardTests();
+int16_t ReadBaro();
  
  #define BMP 
  //#define BME
  #define OTA
  //#define TESTEEPROM
 
+bool bBaroSensorValid = false;
 
 #ifdef BMP
 Adafruit_BMP280 bmp; // I2C
@@ -132,14 +134,12 @@ void setup()
     Serial.println (version);
     
     // Setup the LEDS
-    pinMode (LED_1 , OUTPUT);
     pinMode (LED_2 , OUTPUT);
     pinMode (LED_3 , OUTPUT);
     pinMode (LED_4 , OUTPUT);
 
-    digitalWrite (LED_1 , LOW);
     digitalWrite (LED_2 , LOW);
-    digitalWrite (LED_3 , LOW);
+    digitalWrite (LED_3 , HIGH);
     digitalWrite (LED_4 , LOW);
 
 #ifdef OTA
@@ -226,11 +226,16 @@ void setup()
                         Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
                         Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                         Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
+        bBaroSensorValid = true;
     }
 #elif BME
     if (!bme.begin(0x76))
     {
         Serial.println(F("Could not find a valid BME280 sensor, check wiring!"));
+    }
+    else
+    {
+        bBaroSensorValid = true;
     }
 #endif
 
@@ -768,38 +773,73 @@ byte ReadEEPROM1(int deviceaddress, unsigned int eeaddress )
     return rdata;
 }
 
+
+
+#define TEST_RESULTS_X              132
+#define TEST_RESULTS_Y              10
+#define TEST_INITIAL_X              10
+#define TEST_RESULTS_LINE_HEIGHT    20
+static int testNumber;
+
 //----------------------------------------
 // Test EEprom Code
 //----------------------------------------
-void TestEeprom()
+bool TestEeprom(bool printResult)
 {
-      Serial.println ("Testing EEprom");
-      ReadEEPROM (EepromAddr , 0);
-      for (int i = 0 ; i < BARO_ARRAY_SIZE; i++)
-      {
-          // read out existing data
-          unsigned char origData1 = ReadEEPROM (EepromAddr , i*2);
-          unsigned char origData2 = ReadEEPROM (EepromAddr , (i*2) + 1);
-                    
-          // Test Eeprom
-          WriteEEPROM (EepromAddr , i*2 , 0xaa);
-          WriteEEPROM (EepromAddr , (i*2)+1 , 0x55);
-          unsigned char byte1 = ReadEEPROM (EepromAddr , i*2);
-          unsigned char byte2 = ReadEEPROM (EepromAddr , (i*2) + 1);
-          if (byte1 != 0xaa || byte2 != 0x55)
-          {
-              Serial.printf ("Eeprom test Failure at %d %x %x\r\n" , i*2 , byte1 , byte2);
-          }
-          else
-          {
-              Serial.printf ("Eeprom test OK at %d %x %x\r\n" , i*2 , byte1 , byte2);
-          }
+    if (printResult)
+    {
+        Serial.println ("Testing EEprom");
+    }
+    bool result = true;
 
-          // Write back existing
-          WriteEEPROM (EepromAddr , i*2 , origData1);
-          WriteEEPROM (EepromAddr , (i*2)+1 , origData2);
+    ReadEEPROM (EepromAddr , 0);
+    tft.setTextColor (TFT_YELLOW , cBackground);
 
-      }
+    for (int i = 0 ; i < BARO_ARRAY_SIZE; i++)
+    {
+        // read out existing data
+        unsigned char origData1 = ReadEEPROM (EepromAddr , i*2);
+        unsigned char origData2 = ReadEEPROM (EepromAddr , (i*2) + 1);
+                
+        // Test Eeprom
+        WriteEEPROM (EepromAddr , i*2 , 0xaa);
+        WriteEEPROM (EepromAddr , (i*2)+1 , 0x55);
+        unsigned char byte1 = ReadEEPROM (EepromAddr , i*2);
+        unsigned char byte2 = ReadEEPROM (EepromAddr , (i*2) + 1);
+        
+        if (!printResult && (i % 40) == 0) // put it on the tft
+        {
+            char buf [10];
+            float percent = ((float)i / (float)BARO_ARRAY_SIZE) * 100.f;
+            sprintf(buf , "%d%%" , (int) percent);
+            tft.drawString (buf , TEST_RESULTS_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) ,1);
+        }
+        
+        if (byte1 != 0xaa || byte2 != 0x55)
+        {
+            result = false;
+            if (printResult)
+                Serial.printf ("Eeprom test Failure at %d %x %x\r\n" , i*2 , byte1 , byte2);
+            else
+            {
+                char buf [40];
+                sprintf (buf , "Eeprom test Failure at %d %x %x\r\n" , i*2 , byte1 , byte2);
+                tft.setTextColor (TFT_RED , cBackground);
+                tft.drawString (buf , TEST_RESULTS_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) ,1);
+                break;
+            }
+        }
+        else
+        {
+            if (printResult)
+                Serial.printf ("Eeprom test OK at %d %x %x\r\n" , i*2 , byte1 , byte2);
+        }
+
+        // Write back existing
+        WriteEEPROM (EepromAddr , i*2 , origData1);
+        WriteEEPROM (EepromAddr , (i*2)+1 , origData2);
+    }
+    return result;
 }
 
 
@@ -873,6 +913,25 @@ void ReadData ()
 //----------------------------------------
 //
 //----------------------------------------
+int16_t ReadBaro ()
+{
+    int16_t int_pressure = 0;
+    if (bBaroSensorValid)
+    {
+#ifdef BMP
+        int_pressure = (int16_t)(bmp.readPressure() / 10.0);
+#elif BME
+        int_pressure = (int16_t)(bme.readPressure() / 10.0);
+#else
+        int_pressure = 10134;
+#endif
+    }
+    return int_pressure;
+
+}
+//----------------------------------------
+//
+//----------------------------------------
 uint16_t FilterBaro (uint16_t baro)
 {
     static int head = 0;
@@ -911,22 +970,23 @@ void PWMSetup (int led ,int channel, int duty)
 }
 
 //----------------------------------------
-//
+// Draw the spash screen
 //----------------------------------------
 void SplashScreen ()
 {
-    const int cBackground = TFT_BLACK;
     tft.fillScreen (cBackground);
     tft.setFreeFont (FSS24);
     tft.setTextColor(TFT_SKYBLUE , cBackground);
     tft.setTextDatum (TL_DATUM);
-    tft.drawString ("Barograph" , 150 , 100 , 1);
+    tft.drawString ("Barograph" , 140 , 120 , 1);
 
     tft.setFreeFont (FSS12);
-    tft.drawString ("Version" , 150 , 150 , 1);
-    tft.drawString (version , 300 , 150 , 1);
+    tft.drawString ("Version" , 140 , 160 , 1);
+    tft.drawString (version , 300 , 160 , 1);
     tft.setTextColor(TFT_YELLOW , cBackground);
-    tft.drawString ("Lee Playford (c) 2025" , 150 , 200 , 1);
+    tft.drawString ("Lee Playford (c) 2025" , 140 , 210 , 1);
+
+    RunBoardTests();
 
     if (wifiConnected)
     {
@@ -936,7 +996,142 @@ void SplashScreen ()
         tft.drawString ("MAC Address" , 50 , 300 , 1);
         tft.drawString (WiFi.macAddress() , 250 , 300 , 1);
     }
+        // need to delay for 5 seconds
+    delay (5000);
+
 }
+
+//----------------------------------------
+// Float Mappign function
+//----------------------------------------
+float mapfloat(float x, float in_min, float in_max, float out_min, float out_max)
+{
+    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+
+//----------------------------------------
+// Function to get a text message for the reset reason
+//----------------------------------------
+void getBootReasonMessage(char *buffer, int bufferlength) 
+{
+  esp_reset_reason_t reset_reason = esp_reset_reason();
+  switch (reset_reason) {
+    case ESP_RST_UNKNOWN:
+      snprintf(buffer, bufferlength, "Reset reason can not be determined");
+      break;
+    case ESP_RST_POWERON:
+      snprintf(buffer, bufferlength, "Reset due to power-on event");
+      break;
+    case ESP_RST_EXT:
+      snprintf(buffer, bufferlength, "Reset by external pin (not applicable for ESP32)");
+      break;
+    case ESP_RST_SW:
+      snprintf(buffer, bufferlength, "Software reset via esp_restart");
+      break;
+    case ESP_RST_PANIC:
+      snprintf(buffer, bufferlength, "Software reset due to exception/panic");
+      break;
+    case ESP_RST_INT_WDT:
+      snprintf(buffer, bufferlength, "Reset (software or hardware) due to interrupt watchdog");
+      break;
+    case ESP_RST_TASK_WDT:
+      snprintf(buffer, bufferlength, "Reset due to task watchdog");
+      break;
+    case ESP_RST_WDT:
+      snprintf(buffer, bufferlength, "Reset due to other watchdogs");
+      break;
+    case ESP_RST_DEEPSLEEP:
+      snprintf(buffer, bufferlength, "Reset after exiting deep sleep mode");
+      break;
+    case ESP_RST_BROWNOUT:
+      snprintf(buffer, bufferlength, "Brownout reset (software or hardware)");
+      break;
+    case ESP_RST_SDIO:
+      snprintf(buffer, bufferlength, "Reset over SDIO");
+      break;
+    default:
+      snprintf(buffer, bufferlength, "Unknown reset reason %d", reset_reason);
+      break;
+  }
+}
+
+
+
+
+//----------------------------------------
+// Run Board Tests
+//----------------------------------------
+void RunBoardTests()
+{
+
+    // Run Tests and place on TFT screen
+    tft.setTextColor (TFT_GREEN , cBackground);
+    tft.setFreeFont (FSS9);
+    tft.drawString ("Running Board Tests" , 10 , 10 ,1);
+ 
+    char buf [10];  // temp buffer
+
+    // Test 1 Print Restart Reason
+    testNumber = 1;
+    char bootReasonMessage[150]; // Allocate a buffer for the message
+    getBootReasonMessage(bootReasonMessage, sizeof(bootReasonMessage)); // Get the message
+    tft.drawString (bootReasonMessage , TEST_INITIAL_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) , 1);
+    
+    // Test 2 Check Baro
+    testNumber = 2;
+    int16_t baro = ReadBaro();
+    if (baro > 0)
+    {
+        tft.drawString ("Baro Pressure" , TEST_INITIAL_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) , 1);
+        sprintf (buf , "%0.1f" , (float)baro / 10.f);
+        tft.setTextColor (TFT_YELLOW , cBackground);
+        tft.drawString (buf , TEST_RESULTS_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) ,1);
+        tft.setTextColor (TFT_GREEN , cBackground);
+    }
+    else
+    {
+        tft.setTextColor (TFT_RED , cBackground);
+        tft.drawString ("Baro Failed" , TEST_INITIAL_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) ,1);
+        tft.setTextColor (TFT_GREEN , cBackground);
+
+    }
+
+    // Test 3 Get Input Voltage
+    testNumber = 3;
+    int inVal = analogRead(33);
+    const float vDrop = 0.76f;
+
+    float voltage = mapfloat ((float)inVal , 863.f , 1318.f , 9.24f , 13.24f);
+    voltage += vDrop;
+
+    tft.drawString ("Input Voltage" , TEST_INITIAL_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) ,1);
+    sprintf (buf , "%2.1fv" , voltage);
+    tft.setTextColor (TFT_YELLOW , cBackground);
+    tft.drawString (buf , TEST_RESULTS_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) ,1);
+    tft.setTextColor (TFT_GREEN , cBackground);
+
+
+    // Test 4 Check Memory
+    testNumber = 4;
+    tft.drawString ("Memory Test " , TEST_INITIAL_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) ,1);
+    bool result = TestEeprom(false);
+
+    if (result)
+    {
+        tft.setTextColor (TFT_YELLOW , cBackground);
+        tft.drawString (" =EEPROM Test OK= " , TEST_INITIAL_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) ,1);
+        tft.setTextColor (TFT_GREEN , cBackground);
+
+    }
+    else
+    {
+        tft.setTextColor(TFT_RED , cBackground);
+        tft.drawString (" = EEPROM Test FAILED =" , TEST_INITIAL_X , TEST_RESULTS_Y + (testNumber*TEST_RESULTS_LINE_HEIGHT) ,1);
+        tft.setTextColor (TFT_GREEN , cBackground);
+    }
+}
+
 
 //----------------------------------------
 //
@@ -944,22 +1139,11 @@ void SplashScreen ()
 void loop()
 {
     SplashScreen();
-    LED_1_State = HIGH;
+
     LED_2_State = LOW;
     
-    for (int i = 0 ; i < 6 ; i++)
-    {
-        digitalWrite (LED_1 , LED_1_State);
-        digitalWrite (LED_2 , LED_2_State);
-        digitalWrite (LED_3 , LED_1_State);
-        digitalWrite (LED_4 , LED_2_State);
-        LED_1_State = !LED_1_State;
-        LED_2_State = !LED_2_State;
-        delay (500);
-    }
-    digitalWrite (LED_1 , LOW);
     digitalWrite (LED_2 , LOW);
-    digitalWrite (LED_3 , LOW);
+    digitalWrite (LED_3 , HIGH);
     digitalWrite (LED_4 , LOW);
 
      // draw the screen
@@ -978,13 +1162,7 @@ void loop()
     uint32_t lastSendTime = 0;
     int16_t lastPressure = 0;
 
-#ifdef BMP
-     int16_t int_pressure = (int16_t)(bmp.readPressure() / 10.0);
-#elif BME
-     int16_t int_pressure = (int16_t)(bme.readPressure() / 10.0);
-#else
-    int16_t int_pressure = 10134;
-#endif
+    int16_t int_pressure = ReadBaro();
  
     int16_t counter = 0;
     
@@ -994,11 +1172,8 @@ void loop()
         {
             SendPressure(int_pressure);
             lastSendTime = millis();
-            
-            //digitalWrite (LED_3 , LED_1_State);
-            //LED_1_State = !LED_1_State; save current
-            
         }
+
         if (lastReadTime == 0 || millis() - lastReadTime > SAMPLE_TIME / 8)
         {
             lastReadTime = millis();
